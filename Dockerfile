@@ -2,9 +2,10 @@ FROM eclipse-temurin:11-jdk
 
 WORKDIR /app
 
+# Copier le projet
 COPY . .
 
-# Donner les droits d'exécution au Maven Wrapper
+# Donner le droit d'exécution au wrapper Maven
 RUN chmod +x mvnw
 
 # Construire l'application
