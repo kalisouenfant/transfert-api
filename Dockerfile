@@ -1,11 +1,11 @@
-# Image Java 11
 FROM eclipse-temurin:11-jdk
 
-# Dossier de travail
 WORKDIR /app
 
-# Copier le projet
 COPY . .
+
+# Donner les droits d'exécution au Maven Wrapper
+RUN chmod +x mvnw
 
 # Construire l'application
 RUN ./mvnw clean package -DskipTests
@@ -13,5 +13,5 @@ RUN ./mvnw clean package -DskipTests
 # Exposer le port Render
 EXPOSE 8080
 
-# Démarrer l'application
+# Lancer l'application
 CMD ["java", "-jar", "target/transfert-api-0.0.1-SNAPSHOT.jar"]
