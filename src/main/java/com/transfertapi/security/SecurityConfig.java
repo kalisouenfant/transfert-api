@@ -42,22 +42,33 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
-        http.csrf().disable()
+        http
+            .csrf().disable()
             .cors().configurationSource(corsConfigurationSource()).and()
+
+            .sessionManagement()
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            .and()
+
             .authorizeRequests()
 
+                // ✅ ENDPOINT PUBLIC (TEST)
+                .antMatchers("/api/health").permitAll()
+
+                // ✅ AUTH
                 .antMatchers("/api/auth/**", "/h2-console/**").permitAll()
 
+                // 🔐 RÔLES SPÉCIFIQUES
                 .antMatchers("/api/transactions/stats")
                     .hasAnyRole("SUPERADMIN","ADMIN","RESPONSABLE","AGENT")
 
                 .antMatchers("/api/utilisateurs/**")
                     .hasAnyRole("SUPERADMIN","ADMIN")
 
+                // 🔒 TOUT LE RESTE
                 .antMatchers("/api/**").authenticated()
 
-            .and()
-            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS);
+            .and();
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         http.headers().frameOptions().disable();
