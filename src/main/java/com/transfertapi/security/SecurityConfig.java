@@ -3,7 +3,7 @@ package com.transfertapi.security;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod; // Ajouté pour filtrer par méthode HTTP
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -42,33 +42,31 @@ public class SecurityConfig {
         http.csrf().disable()
             .cors().configurationSource(corsConfigurationSource()).and()
             .authorizeRequests()
-                // 1. Public (Auth et Console H2)
-                .antMatchers("/api/auth/**", "/h2-console/**").permitAll()
+                // 🔹 Endpoints publics
+                .antMatchers("/api/auth/**", "/h2-console/**", "/api/health").permitAll()
 
-                // 2. Statistiques : Accessible à tous les rôles authentifiés
+                // 🔹 Statistiques
                 .antMatchers("/api/transactions/stats", "/api/transactions/stats/**")
                     .hasAnyRole("SUPERADMIN", "ADMIN", "RESPONSABLE", "AGENT")
 
-                // 3. Agences : Correction recommandée
-                // Permettre à ADMIN et RESPONSABLE de voir la liste (GET)
+                // 🔹 Agences
                 .antMatchers(HttpMethod.GET, "/api/agences/**")
                     .hasAnyRole("SUPERADMIN", "ADMIN", "RESPONSABLE")
-                // Seul le SUPERADMIN peut créer, modifier ou supprimer
                 .antMatchers("/api/agences/**").hasRole("SUPERADMIN")
 
-                // 4. Utilisateurs
+                // 🔹 Utilisateurs
                 .antMatchers("/api/utilisateurs/minimal").authenticated()
                 .antMatchers("/api/utilisateurs/**").hasAnyRole("SUPERADMIN", "ADMIN")
 
-                // 5. Tout le reste (Transactions, Clients, Journal, Codes)
+                // 🔹 Tout le reste
                 .anyRequest().authenticated()
 
             .and()
             .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS);
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
-        
-        // Frames pour H2
+
+        // 🔹 Frames pour H2 console
         http.headers().frameOptions().disable();
 
         return http.build();
@@ -77,8 +75,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // Utilisation de pattern pour plus de flexibilité avec le client desktop
-        config.setAllowedOriginPatterns(List.of("*")); 
+        config.setAllowedOriginPatterns(List.of("*"));
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept"));
         config.setExposedHeaders(List.of("Authorization"));
