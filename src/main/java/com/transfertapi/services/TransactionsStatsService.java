@@ -21,68 +21,49 @@ public class TransactionsStatsService {
     @Autowired
     private AgenceRepository agenceRepository;
 
-    /* === GLOBAL === */
+    private LocalDateTime startToday() {
+        return LocalDate.now().atStartOfDay();
+    }
+
+    private LocalDateTime endToday() {
+        return LocalDate.now().plusDays(1).atStartOfDay();
+    }
+
+    /* ===== SUPERADMIN ===== */
     public TransactionsStatsDTO getStatsGlobal() {
 
-        LocalDate today = LocalDate.now();
-        LocalDateTime start = today.atStartOfDay();
-        LocalDateTime end = today.plusDays(1).atStartOfDay();
-
-        long transactions = transactionRepository.countBetween(start, end);
-        BigDecimal montant = transactionRepository.sumBetween(start, end);
-        if (montant == null) montant = BigDecimal.ZERO;
-
-        long clients = clientRepository.count();
-        long agences = agenceRepository.countByActifTrue();
+        BigDecimal montant = transactionRepository.sumBetween(startToday(), endToday());
 
         return new TransactionsStatsDTO(
-                transactions,
-                clients,
-                agences,
+                transactionRepository.countBetween(startToday(), endToday()),
+                clientRepository.count(),
+                agenceRepository.countByActifTrue(),
                 montant.doubleValue()
         );
     }
 
-    /* === PAR AGENCE === */
+    /* ===== RESPONSABLE ===== */
     public TransactionsStatsDTO getStatsByAgence(Integer agenceId) {
 
-        LocalDate today = LocalDate.now();
-        LocalDateTime start = today.atStartOfDay();
-        LocalDateTime end = today.plusDays(1).atStartOfDay();
-
-        long transactions =
-                transactionRepository.countByAgenceBetween(agenceId, start, end);
-
         BigDecimal montant =
-                transactionRepository.sumByAgenceBetween(agenceId, start, end);
-
-        if (montant == null) montant = BigDecimal.ZERO;
+                transactionRepository.sumByAgenceBetween(agenceId, startToday(), endToday());
 
         return new TransactionsStatsDTO(
-                transactions,
+                transactionRepository.countByAgenceBetween(agenceId, startToday(), endToday()),
                 clientRepository.count(),
                 1,
                 montant.doubleValue()
         );
     }
 
-    /* === PAR UTILISATEUR === */
+    /* ===== AGENT ===== */
     public TransactionsStatsDTO getStatsByUtilisateur(Integer userId, Integer agenceId) {
 
-        LocalDate today = LocalDate.now();
-        LocalDateTime start = today.atStartOfDay();
-        LocalDateTime end = today.plusDays(1).atStartOfDay();
-
-        long transactions =
-                transactionRepository.countByUserBetween(userId, agenceId, start, end);
-
         BigDecimal montant =
-                transactionRepository.sumByUserBetween(userId, agenceId, start, end);
-
-        if (montant == null) montant = BigDecimal.ZERO;
+                transactionRepository.sumByUserBetween(userId, agenceId, startToday(), endToday());
 
         return new TransactionsStatsDTO(
-                transactions,
+                transactionRepository.countByUserBetween(userId, agenceId, startToday(), endToday()),
                 clientRepository.count(),
                 1,
                 montant.doubleValue()

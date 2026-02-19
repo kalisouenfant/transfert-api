@@ -1,14 +1,37 @@
 package com.transfertapi.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-
-@Data
-@AllArgsConstructor
 public class TransactionsStatsDTO {
 
-    private long total;            // Total transactions du jour
-    private long clients;          // Nombre total de clients
-    private long agences;          // Nombre d’agences actives
-    private double montantTotal;   // Montant total du jour
+    private long totalTransactions;
+    private long totalClients;
+    private long totalAgences;
+    private double montantTotal;
+
+    public TransactionsStatsDTO() {}
+
+    public TransactionsStatsDTO(long totalTransactions,
+                                long totalClients,
+                                long totalAgences,
+                                double montantTotal) {
+        this.totalTransactions = totalTransactions;
+        this.totalClients = totalClients;
+        this.totalAgences = totalAgences;
+        this.montantTotal = montantTotal;
+    }
+
+    public long getTotalTransactions() {
+        return totalTransactions;
+    }
+
+    public long getTotalClients() {
+        return totalClients;
+    }
+
+    public long getTotalAgences() {
+        return totalAgences;
+    }
+
+    public double getMontantTotal() {
+        return montantTotal;
+    }
 }

@@ -25,13 +25,13 @@
 
     <dependencies>
 
-        <!-- 🌐 Web -->
+        <!-- 🌐 Web REST API -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- 💾 JPA -->
+        <!-- 💾 JPA / Hibernate -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -62,10 +62,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- 🐘 PostgreSQL (OBLIGATOIRE) -->
+        <!-- 🐬 MySQL Connector stable pour Java 11 -->
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>8.0.33</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -76,7 +77,7 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- 🧪 Tests -->
+        <!-- 🧪 Tests unitaires -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -87,6 +88,7 @@
 
     <build>
         <plugins>
+            <!-- 🚀 Spring Boot Maven Plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

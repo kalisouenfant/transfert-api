@@ -1,12 +1,11 @@
 package com.transfertapi.services;
 
 import com.transfertapi.entities.*;
-import com.transfertapi.exceptions.ResourceNotFoundException;
 import com.transfertapi.repositories.CodeTransfertRepository;
 import com.transfertapi.repositories.ClientRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,156 +25,108 @@ public class CodeTransfertService {
     private ClientRepository clientRepo;
 
     @Autowired
-    private TransactionService transactionService;
-
-    @Autowired
     private MouvementCaisseService mouvementService;
 
-    public CodeTransfert creer(Map<String, Object> data) {
+    @Autowired
+    private TransactionService transactionService;
+
+    /**
+     * Utilise searchGlobal pour récupérer tous les transferts (Super-Admins)
+     */
+    public Page<CodeTransfert> getAllTransferts(int page, int size) {
+        // On passe null pour statut et search pour tout récupérer
+        return repo.searchGlobal(null, null, PageRequest.of(page, size));
+    }
+
+    /**
+     * Utilise searchByAgence pour filtrer par agence (Responsables)
+     */
+    public Page<CodeTransfert> getTransfertsByAgence(Integer agenceId, int page, int size) {
+        // On passe null pour statut et search pour filtrer uniquement sur l'ID de l'agence
+        return repo.searchByAgence(null, null, agenceId, PageRequest.of(page, size));
+    }
+
+    /**
+     * ENVOI : Le client dépose l'argent -> ENTRÉE en caisse.
+     */
+    public CodeTransfert creer(Map<String, Object> data, Utilisateur current) {
+        if (current.getAgence() == null) throw new RuntimeException("Utilisateur sans agence.");
 
         BigDecimal montant = new BigDecimal(data.get("montant").toString());
-        Integer agenceEnvoiId = (Integer) data.get("agenceEnvoiId");
-        Integer utilisateurId = (Integer) data.get("utilisateurId");
-        Integer agenceReceptionId = (Integer) data.get("agenceReceptionId");
+        if (montant.compareTo(BigDecimal.ZERO) <= 0) throw new RuntimeException("Montant invalide.");
 
-        String expTel = data.get("expediteurContact").toString();
-        String expNom = data.get("expediteurNom").toString();
-        Client exp = clientRepo.findByTelephone(expTel).orElseGet(() ->
-                clientRepo.save(Client.builder().nom(expNom).telephone(expTel).build())
-        );
+        Integer agenceEnvoiId = current.getAgence().getId();
+        Integer agenceReceptionId = data.get("agenceReceptionId") != null ? (Integer) data.get("agenceReceptionId") : null;
 
-        String benTel = data.get("beneficiaireContact").toString();
-        String benNom = data.get("beneficiaireNom").toString();
-        Client ben = clientRepo.findByTelephone(benTel).orElseGet(() ->
-                clientRepo.save(Client.builder().nom(benNom).telephone(benTel).build())
-        );
+        Client exp = getOrCreateClient(data.get("expediteurContact").toString(), data.get("expediteurNom").toString());
+        Client ben = getOrCreateClient(data.get("beneficiaireContact").toString(), data.get("beneficiaireNom").toString());
 
-        String code = genererCode();
+        String code = genererCodeUnique();
 
-        CodeTransfert ct = repo.save(
-                CodeTransfert.builder()
-                        .code(code)
-                        .montant(montant)
-                        .statut(StatutCodeTransfert.ENVOYE)
-                        .expediteurClientId(exp.getId())
-                        .beneficiaireClientId(ben.getId())
-                        .agenceEnvoiId(agenceEnvoiId)
-                        .agenceReceptionId(agenceReceptionId)
-                        .utilisateurId(utilisateurId)
-                        .dateEnvoi(LocalDateTime.now())
-                        .build()
-        );
+        CodeTransfert ct = repo.save(CodeTransfert.builder()
+                .code(code).montant(montant).statut(StatutCodeTransfert.ENVOYE)
+                .expediteurClientId(exp.getId()).beneficiaireClientId(ben.getId())
+                .agenceEnvoiId(agenceEnvoiId).agenceReceptionId(agenceReceptionId)
+                .utilisateurId(current.getId()).dateEnvoi(LocalDateTime.now())
+                .build());
 
-        mouvementService.save(
-                MouvementCaisse.builder()
-                        .agence(new Agence(agenceEnvoiId))
-                        .utilisateur(new Utilisateur(utilisateurId))
-                        .type(TypeMouvement.ENTREE)
-                        .montant(montant)
-                        .motif("ENVOI TRANSFERT " + code)
-                        .dateMouvement(LocalDateTime.now())
-                        .build()
-        );
+        mouvementService.save(MouvementCaisse.builder()
+                .agence(current.getAgence()).utilisateur(current).type(TypeMouvement.ENTREE)
+                .montant(montant).motif("ENVOI TRANSFERT " + code).dateMouvement(LocalDateTime.now())
+                .build());
 
-        transactionService.creerTransaction(
-                Transaction.builder()
-                        .montant(montant)
-                        .type(TypeTransaction.TRANSFERT_ENVOI)
-                        .statut(StatutTransaction.SUCCES)
-                        .agenceEnvoiId(agenceEnvoiId)
-                        .agenceReceptionId(agenceReceptionId)
-                        .expediteurClientId(exp.getId())
-                        .beneficiaireClientId(ben.getId())
-                        .utilisateurId(utilisateurId)
-                        .codeTransfertId(ct.getId())
-                        .build()
-        );
+        transactionService.creerTransaction(buildTransaction(ct, TypeTransaction.TRANSFERT_ENVOI, agenceEnvoiId, agenceReceptionId, current.getId()));
 
         return ct;
     }
 
-    public CodeTransfert retirer(String code, Integer userId, Integer agenceReceptionId) {
-
+    /**
+     * RETRAIT : L'agence paie le bénéficiaire -> SORTIE de caisse.
+     */
+    public CodeTransfert retirer(String code, Utilisateur current) {
         CodeTransfert ct = verifier(code);
+        Integer agenceRetraitId = current.getAgence().getId();
 
-        if (ct.getStatut() != StatutCodeTransfert.ENVOYE)
-            throw new RuntimeException("Action impossible : ce code est " + ct.getStatut());
+        if (ct.getStatut() != StatutCodeTransfert.ENVOYE) 
+            throw new RuntimeException("Statut invalide : " + ct.getStatut());
+        
+        if (ct.getAgenceReceptionId() != null && !ct.getAgenceReceptionId().equals(agenceRetraitId))
+            throw new RuntimeException("Retrait restreint à une autre agence.");
 
-        if (!agenceReceptionId.equals(ct.getAgenceReceptionId()))
-            throw new RuntimeException("Vous ne pouvez retirer que dans votre agence.");
+        mouvementService.verifierSoldeAgence(agenceRetraitId, ct.getMontant());
 
-        mouvementService.verifierSoldeAgence(agenceReceptionId, ct.getMontant());
+        mouvementService.save(MouvementCaisse.builder()
+                .agence(current.getAgence()).utilisateur(current).type(TypeMouvement.SORTIE)
+                .montant(ct.getMontant()).motif("RETRAIT TRANSFERT " + code).dateMouvement(LocalDateTime.now())
+                .build());
 
-        transactionService.creerTransaction(
-                Transaction.builder()
-                        .montant(ct.getMontant())
-                        .type(TypeTransaction.TRANSFERT_RECEPTION)
-                        .statut(StatutTransaction.SUCCES)
-                        .agenceEnvoiId(ct.getAgenceEnvoiId())
-                        .agenceReceptionId(agenceReceptionId)
-                        .expediteurClientId(ct.getExpediteurClientId())
-                        .beneficiaireClientId(ct.getBeneficiaireClientId())
-                        .utilisateurId(userId)
-                        .codeTransfertId(ct.getId())
-                        .build()
-        );
-
-        mouvementService.save(
-                MouvementCaisse.builder()
-                        .agence(new Agence(agenceReceptionId))
-                        .utilisateur(new Utilisateur(userId))
-                        .type(TypeMouvement.SORTIE)
-                        .montant(ct.getMontant())
-                        .motif("RETRAIT TRANSFERT " + code)
-                        .dateMouvement(LocalDateTime.now())
-                        .build()
-        );
+        transactionService.creerTransaction(buildTransaction(ct, TypeTransaction.TRANSFERT_RECEPTION, ct.getAgenceEnvoiId(), agenceRetraitId, current.getId()));
 
         ct.setStatut(StatutCodeTransfert.RETIRE);
         ct.setDateRetrait(LocalDateTime.now());
-        ct.setAgenceReceptionId(agenceReceptionId);
+        ct.setUtilisateurRetraitId(current.getId());
+        ct.setAgenceEffectiveRetraitId(agenceRetraitId);
 
         return repo.save(ct);
     }
 
+    /**
+     * ANNULATION : On rend l'argent à l'expéditeur -> SORTIE de caisse.
+     */
     public CodeTransfert annuler(String code, Utilisateur current) {
-
         CodeTransfert ct = verifier(code);
 
-        if (ct.getStatut() != StatutCodeTransfert.ENVOYE)
-            throw new RuntimeException("Action impossible : déjà " + ct.getStatut());
+        if (ct.getStatut() != StatutCodeTransfert.ENVOYE) 
+            throw new RuntimeException("Impossible d'annuler un code " + ct.getStatut());
 
-        if (current.getRole() != Role.SUPERADMIN) {
+        mouvementService.verifierSoldeAgence(current.getAgence().getId(), ct.getMontant());
 
-            if (current.getAgence() == null ||
-                    !current.getAgence().getId().equals(ct.getAgenceEnvoiId())) {
-                throw new RuntimeException("Vous ne pouvez annuler qu'un transfert émis par votre agence.");
-            }
-        }
+        mouvementService.save(MouvementCaisse.builder()
+                .agence(current.getAgence()).utilisateur(current).type(TypeMouvement.SORTIE)
+                .montant(ct.getMontant()).motif("ANNULATION TRANSFERT " + code).dateMouvement(LocalDateTime.now())
+                .build());
 
-        mouvementService.verifierSoldeAgence(ct.getAgenceEnvoiId(), ct.getMontant());
-
-        transactionService.creerTransaction(
-                Transaction.builder()
-                        .montant(ct.getMontant())
-                        .type(TypeTransaction.TRANSFERT_ANNULATION)
-                        .statut(StatutTransaction.SUCCES)
-                        .agenceEnvoiId(ct.getAgenceEnvoiId())
-                        .utilisateurId(current.getId())
-                        .codeTransfertId(ct.getId())
-                        .build()
-        );
-
-        mouvementService.save(
-                MouvementCaisse.builder()
-                        .agence(new Agence(ct.getAgenceEnvoiId()))
-                        .utilisateur(new Utilisateur(current.getId()))
-                        .type(TypeMouvement.SORTIE)
-                        .montant(ct.getMontant())
-                        .motif("ANNULATION TRANSFERT " + code)
-                        .dateMouvement(LocalDateTime.now())
-                        .build()
-        );
+        transactionService.creerTransaction(buildTransaction(ct, TypeTransaction.TRANSFERT_ANNULATION, ct.getAgenceEnvoiId(), null, current.getId()));
 
         ct.setStatut(StatutCodeTransfert.ANNULE);
         ct.setDateAnnulation(LocalDateTime.now());
@@ -184,33 +135,28 @@ public class CodeTransfertService {
         return repo.save(ct);
     }
 
-    public Page<CodeTransfert> listFiltered(String statut, String search, Integer agenceId, Pageable pageable) {
-
-        StatutCodeTransfert statutEnum = null;
-
-        if (statut != null && !statut.isEmpty() && !"TOUS".equalsIgnoreCase(statut)) {
-            try { statutEnum = StatutCodeTransfert.valueOf(statut.toUpperCase()); }
-            catch (Exception ignored) { }
-        }
-
-        String searchParam = (search == null || search.trim().isEmpty()) ? null : search;
-
-        if (agenceId == null)
-            return repo.searchGlobal(statutEnum, searchParam, pageable);
-
-        return repo.searchByAgence(statutEnum, searchParam, agenceId, pageable);
-    }
-
     public CodeTransfert verifier(String code) {
-        return repo.findByCode(code)
-                .orElseThrow(() -> new ResourceNotFoundException("Code introuvable : " + code));
+        return repo.findByCode(code).orElseThrow(() -> new RuntimeException("Code inexistant."));
     }
 
-    private String genererCode() {
+    private Client getOrCreateClient(String tel, String nom) {
+        return clientRepo.findByTelephone(tel).orElseGet(() -> 
+            clientRepo.save(Client.builder().nom(nom).telephone(tel).build()));
+    }
+
+    private Transaction buildTransaction(CodeTransfert ct, TypeTransaction type, Integer envoiId, Integer recepId, Integer userId) {
+        return Transaction.builder()
+                .montant(ct.getMontant()).type(type).statut(StatutTransaction.SUCCES)
+                .agenceEnvoiId(envoiId).agenceReceptionId(recepId)
+                .expediteurClientId(ct.getExpediteurClientId()).beneficiaireClientId(ct.getBeneficiaireClientId())
+                .utilisateurId(userId).codeTransfertId(ct.getId())
+                .build();
+    }
+
+    private String genererCodeUnique() {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         Random random = new Random();
         String code;
-
         do {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < 12; i++) {
@@ -219,7 +165,6 @@ public class CodeTransfertService {
             }
             code = sb.toString();
         } while (repo.findByCode(code).isPresent());
-
         return code;
     }
 }

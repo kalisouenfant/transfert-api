@@ -15,7 +15,7 @@ public class CodeTransfert {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    @Column(nullable = false, unique = true, length = 12)
+    @Column(nullable = false, unique = true, length = 15)
     private String code;
 
     @Column(nullable = false, precision = 15, scale = 2)
@@ -23,7 +23,7 @@ public class CodeTransfert {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private StatutCodeTransfert statut = StatutCodeTransfert.ENVOYE;
+    private StatutCodeTransfert statut;
 
     @Column(nullable = false)
     private Integer expediteurClientId;
@@ -34,31 +34,40 @@ public class CodeTransfert {
     @Column(nullable = false)
     private Integer agenceEnvoiId;
 
+    /** Agence de destination imposée à l'envoi (peut être null si libre) */
     @Column
-    private Integer agenceReceptionId;
+    private Integer agenceReceptionId; 
+
+    /** Utilisateur ayant créé l'envoi */
+    @Column(nullable = false)
+    private Integer utilisateurId; 
 
     @Column(nullable = false)
-    private Integer utilisateurId;
+    private LocalDateTime dateEnvoi;
 
-    @Column(nullable = false)
-    private LocalDateTime dateEnvoi = LocalDateTime.now();
+    // ===========================================
+    // CHAMPS POUR LE RETRAIT (LOGIQUE PRO)
+    // ===========================================
 
     @Column
     private LocalDateTime dateRetrait;
-    
+
+    /** ID de l'utilisateur qui a validé le paiement au bénéficiaire */
+    @Column
+    private Integer utilisateurRetraitId; 
+
+    /** ID de l'agence où l'argent a été réellement retiré (Historique) */
+    @Column(name = "agence_effective_retrait_id")
+    private Integer agenceEffectiveRetraitId; 
+
     // ===========================================
-    // NOUVEAUX CHAMPS POUR L'ANNULATION (CORRECTION)
+    // CHAMPS POUR L'ANNULATION
     // ===========================================
 
-    /** Date et heure de l'annulation du code de transfert. */
     @Column(name = "date_annulation")
     private LocalDateTime dateAnnulation;
 
-    /** ID de l'utilisateur (employé) qui a effectué l'annulation. */
+    /** ID de l'utilisateur ayant procédé à l'annulation/remboursement */
     @Column(name = "utilisateur_annulation_id")
     private Integer utilisateurAnnulationId;
-    
-    // ===========================================
-    // FIN DES AJOUTS
-    // ===========================================
 }

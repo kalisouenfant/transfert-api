@@ -28,19 +28,16 @@ public class TransactionsStatsController {
                 .getByEmail(auth.getName())
                 .orElseThrow(() -> new RuntimeException("Utilisateur non trouvé"));
 
-        // SUPERADMIN → stats globales
         if (user.getRole() == Role.SUPERADMIN) {
             return ResponseEntity.ok(statsService.getStatsGlobal());
         }
 
-        // RESPONSABLE → stats de son agence
         if (user.getRole() == Role.RESPONSABLE) {
             return ResponseEntity.ok(
                     statsService.getStatsByAgence(user.getAgence().getId())
             );
         }
 
-        // AGENT → uniquement ses opérations dans son agence
         return ResponseEntity.ok(
                 statsService.getStatsByUtilisateur(
                         user.getId(),

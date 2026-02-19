@@ -4,7 +4,7 @@ import com.transfertapi.entities.*;
 import com.transfertapi.services.CodeTransfertService;
 import com.transfertapi.services.UtilisateurService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -27,58 +27,43 @@ public class CodeTransfertController {
                 .orElseThrow(() -> new RuntimeException("Utilisateur non trouvé"));
     }
 
+    // --- 0. LISTE (Nouveau : pour corriger l'erreur GET) ---
     @GetMapping
-    public ResponseEntity<Page<CodeTransfert>> list(
-            @RequestParam(required = false) String statut,
-            @RequestParam(required = false) String search,
+    public ResponseEntity<Page<CodeTransfert>> lister(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "15") int size,
-            @RequestParam(defaultValue = "id,desc") String sort,
-            Authentication auth
+            @RequestParam(required = false) Integer agenceId
     ) {
-        Utilisateur current = getCurrentUser(auth);
-
-        String[] sortParts = sort.split(",");
-        Sort sorting = Sort.by(Sort.Direction.fromString(sortParts[1]), sortParts[0]);
-        Pageable pageable = PageRequest.of(page, size, sorting);
-
-        Integer agenceIdFilter = null;
-
-        if (current.getRole() != Role.SUPERADMIN && current.getAgence() != null) {
-            agenceIdFilter = current.getAgence().getId();
+        if (agenceId != null) {
+            return ResponseEntity.ok(service.getTransfertsByAgence(agenceId, page, size));
         }
-
-        return ResponseEntity.ok(
-                service.listFiltered(statut, search, agenceIdFilter, pageable)
-        );
+        return ResponseEntity.ok(service.getAllTransferts(page, size));
     }
 
+    // --- 1. ENVOI ---
     @PostMapping
-    public ResponseEntity<?> creer(@RequestBody Map<String, Object> data,
-                                   Authentication auth) {
+    public ResponseEntity<CodeTransfert> creer(@RequestBody Map<String, Object> data, Authentication auth) {
         Utilisateur current = getCurrentUser(auth);
-        data.put("utilisateurId", current.getId());
-        return ResponseEntity.status(201).body(service.creer(data));
+        return ResponseEntity.status(201).body(service.creer(data, current));
     }
 
+    // --- 2. RETRAIT ---
+    @PutMapping("/retirer/{code}")
+    public ResponseEntity<CodeTransfert> retirer(@PathVariable String code, Authentication auth) {
+        Utilisateur current = getCurrentUser(auth);
+        return ResponseEntity.ok(service.retirer(code, current));
+    }
+
+    // --- 3. ANNULATION ---
     @PutMapping("/annuler/{code}")
-    public ResponseEntity<?> annuler(@PathVariable String code, Authentication auth) {
+    public ResponseEntity<CodeTransfert> annuler(@PathVariable String code, Authentication auth) {
         Utilisateur current = getCurrentUser(auth);
         return ResponseEntity.ok(service.annuler(code, current));
     }
 
-    @PutMapping("/retirer/{code}")
-    public ResponseEntity<?> retirer(@PathVariable String code, Authentication auth) {
-        Utilisateur current = getCurrentUser(auth);
-        Integer agenceId = current.getAgence().getId();
-
-        return ResponseEntity.ok(
-                service.retirer(code, current.getId(), agenceId)
-        );
-    }
-
+    // --- CONSULTATION ---
     @GetMapping("/chercher/{code}")
-    public ResponseEntity<?> verifier(@PathVariable String code) {
+    public ResponseEntity<CodeTransfert> verifier(@PathVariable String code) {
         return ResponseEntity.ok(service.verifier(code));
     }
 }

@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/journal")
@@ -29,61 +30,92 @@ public class JournalActionController {
     }
 
     private Utilisateur current(Authentication auth) {
-
         if (auth == null)
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Non authentifié");
 
         return utilisateurService.getByEmail(auth.getName())
-                .orElseThrow(() ->
-                        new ResponseStatusException(
-                                HttpStatus.UNAUTHORIZED,
-                                "Utilisateur non trouvé")
-                );
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Utilisateur non trouvé"));
     }
 
-    /** Lister tout — Admin & SuperAdmin uniquement */
+    /** * Lister les actions du journal avec filtrage par rôle
+     */
     @GetMapping
     public ResponseEntity<?> getAll(Authentication auth) {
-
         Utilisateur u = current(auth);
 
+        // 1. SUPERADMIN et ADMIN voient tout le journal
         if (u.getRole() == Role.SUPERADMIN || u.getRole() == Role.ADMIN) {
             return ResponseEntity.ok(service.getAll());
         }
 
+        // 2. RESPONSABLE voit uniquement les actions des utilisateurs de son agence
+        if (u.getRole() == Role.RESPONSABLE) {
+            if (u.getAgence() == null) {
+                return ResponseEntity.ok(List.of()); // Aucune agence rattachée
+            }
+
+            Integer agenceId = u.getAgence().getId();
+            
+            // On récupère tout et on filtre (ou on appelle une méthode optimisée dans le service)
+            List<JournalAction> journalAgence = service.getAll().stream()
+                .filter(action -> {
+                    // On vérifie si l'utilisateur qui a fait l'action appartient à la même agence
+                    return utilisateurService.getById(action.getUtilisateurId())
+                        .map(userAction -> userAction.getAgence() != null && userAction.getAgence().getId().equals(agenceId))
+                        .orElse(false);
+                })
+                .collect(Collectors.toList());
+
+            return ResponseEntity.ok(journalAgence);
+        }
+
+        // 3. AGENT n'a pas accès au journal
         throw new ResponseStatusException(
                 HttpStatus.FORBIDDEN,
-                "Accès réservé à l'administration"
+                "Accés réservé à l'administration"
         );
     }
 
     /** Par ID */
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable Integer id) {
-        return service.getById(id)
-                .map(ResponseEntity::ok)
-                .orElseThrow(() ->
-                        new ResponseStatusException(HttpStatus.NOT_FOUND,
-                                "Action introuvable"));
+    public ResponseEntity<?> getById(@PathVariable Integer id, Authentication auth) {
+        Utilisateur u = current(auth);
+        JournalAction action = service.getById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Action introuvable"));
+
+        // Vérification de sécurité pour le Responsable
+        if (u.getRole() == Role.RESPONSABLE) {
+            Utilisateur auteurAction = utilisateurService.getById(action.getUtilisateurId()).orElse(null);
+            if (auteurAction == null || auteurAction.getAgence() == null || !auteurAction.getAgence().getId().equals(u.getAgence().getId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cette action n'appartient pas à votre agence");
+            }
+        }
+
+        return ResponseEntity.ok(action);
     }
 
-    /** Historique d’un utilisateur */
+    /** Historique d’un utilisateur spécifique */
     @GetMapping("/utilisateur/{id}")
-    public ResponseEntity<List<JournalAction>> getByUtilisateur(@PathVariable Integer id) {
+    public ResponseEntity<List<JournalAction>> getByUtilisateur(@PathVariable Integer id, Authentication auth) {
+        Utilisateur u = current(auth);
+        
+        // Un responsable ne peut voir que les utilisateurs de son agence
+        if (u.getRole() == Role.RESPONSABLE) {
+            Utilisateur cible = utilisateurService.getById(id).orElse(null);
+            if (cible == null || cible.getAgence() == null || !cible.getAgence().getId().equals(u.getAgence().getId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cet utilisateur n'est pas dans votre agence");
+            }
+        }
+        
         return ResponseEntity.ok(service.getByUtilisateur(id));
     }
 
-    /** Enregistrer */
+    /** Enregistrer une action */
     @PostMapping("/enregistrer")
     public ResponseEntity<?> enregistrer(@RequestBody JournalAction action) {
-
         if (action.getUtilisateurId() == null || action.getAction() == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Utilisateur et action obligatoires"
-            );
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Utilisateur et action obligatoires");
         }
-
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of(
                         "message", "Action enregistrée",
@@ -94,18 +126,11 @@ public class JournalActionController {
     /** Supprimer — seulement SuperAdmin */
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable Integer id, Authentication auth) {
-
         Utilisateur u = current(auth);
-
         if (u.getRole() != Role.SUPERADMIN) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Suppression réservée au SuperAdmin"
-            );
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Suppression réservée au SuperAdmin");
         }
-
         service.delete(id);
-
         return ResponseEntity.ok(Map.of("message", "Supprimé"));
     }
 }
