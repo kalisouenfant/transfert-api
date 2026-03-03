@@ -12,7 +12,6 @@ public class HealthController {
         return new HealthStatus("Transfert API is up 🚀", Instant.now().toString());
     }
 
-    // Classe interne pour un JSON propre
     public static class HealthStatus {
         private String status;
         private String timestamp;
