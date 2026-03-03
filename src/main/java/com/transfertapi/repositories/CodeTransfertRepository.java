@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 @Repository
@@ -38,6 +39,17 @@ public interface CodeTransfertRepository extends JpaRepository<CodeTransfert, In
             Pageable pageable
     );
 
-    // FIX : Pour AgenceService (Vérifie si l'agence est liée à des transferts)
+    // Vérifie si l'agence est liée à des transferts
     boolean existsByAgenceEnvoiIdOrAgenceReceptionId(Integer agenceEnvoiId, Integer agenceReceptionId);
+
+    /* =====================================================
+       🔥 AJOUT POUR LE DASHBOARD (NE CASSE RIEN)
+       ===================================================== */
+
+    // Nombre de codes par statut (ex: ENVOYE = retraits en attente)
+    long countByStatut(StatutCodeTransfert statut);
+
+    // Somme des montants par statut
+    @Query("SELECT COALESCE(SUM(c.montant), 0) FROM CodeTransfert c WHERE c.statut = :statut")
+    BigDecimal sumByStatut(@Param("statut") StatutCodeTransfert statut);
 }

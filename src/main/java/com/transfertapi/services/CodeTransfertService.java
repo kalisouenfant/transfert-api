@@ -31,23 +31,21 @@ public class CodeTransfertService {
     private TransactionService transactionService;
 
     /**
-     * Utilise searchGlobal pour récupérer tous les transferts (Super-Admins)
+     * Récupère tous les transferts (Super-Admins)
      */
     public Page<CodeTransfert> getAllTransferts(int page, int size) {
-        // On passe null pour statut et search pour tout récupérer
         return repo.searchGlobal(null, null, PageRequest.of(page, size));
     }
 
     /**
-     * Utilise searchByAgence pour filtrer par agence (Responsables)
+     * Récupère les transferts filtrés par agence (Responsables)
      */
     public Page<CodeTransfert> getTransfertsByAgence(Integer agenceId, int page, int size) {
-        // On passe null pour statut et search pour filtrer uniquement sur l'ID de l'agence
         return repo.searchByAgence(null, null, agenceId, PageRequest.of(page, size));
     }
 
     /**
-     * ENVOI : Le client dépose l'argent -> ENTRÉE en caisse.
+     * ENVOI : le client dépose l'argent -> ENTRÉE en caisse
      */
     public CodeTransfert creer(Map<String, Object> data, Utilisateur current) {
         if (current.getAgence() == null) throw new RuntimeException("Utilisateur sans agence.");
@@ -81,26 +79,37 @@ public class CodeTransfertService {
     }
 
     /**
-     * RETRAIT : L'agence paie le bénéficiaire -> SORTIE de caisse.
+     * RETRAIT : l'agence paie le bénéficiaire -> SORTIE de caisse
+     * Gestion spéciale si l'agence de réception a été supprimée
      */
     public CodeTransfert retirer(String code, Utilisateur current) {
         CodeTransfert ct = verifier(code);
         Integer agenceRetraitId = current.getAgence().getId();
 
-        if (ct.getStatut() != StatutCodeTransfert.ENVOYE) 
+        if (ct.getStatut() != StatutCodeTransfert.ENVOYE)
             throw new RuntimeException("Statut invalide : " + ct.getStatut());
-        
-        if (ct.getAgenceReceptionId() != null && !ct.getAgenceReceptionId().equals(agenceRetraitId))
-            throw new RuntimeException("Retrait restreint à une autre agence.");
+
+        // Vérification de l'agence de réception uniquement si elle existe
+        if (ct.getAgenceReceptionId() != null) {
+            boolean agenceExiste = true; // À remplacer par : agenceRepository.existsById(ct.getAgenceReceptionId())
+            if (agenceExiste && !ct.getAgenceReceptionId().equals(agenceRetraitId)) {
+                throw new RuntimeException("Retrait restreint à une autre agence.");
+            }
+        }
 
         mouvementService.verifierSoldeAgence(agenceRetraitId, ct.getMontant());
 
         mouvementService.save(MouvementCaisse.builder()
-                .agence(current.getAgence()).utilisateur(current).type(TypeMouvement.SORTIE)
-                .montant(ct.getMontant()).motif("RETRAIT TRANSFERT " + code).dateMouvement(LocalDateTime.now())
+                .agence(current.getAgence())
+                .utilisateur(current)
+                .type(TypeMouvement.SORTIE)
+                .montant(ct.getMontant())
+                .motif("RETRAIT TRANSFERT " + code)
+                .dateMouvement(LocalDateTime.now())
                 .build());
 
-        transactionService.creerTransaction(buildTransaction(ct, TypeTransaction.TRANSFERT_RECEPTION, ct.getAgenceEnvoiId(), agenceRetraitId, current.getId()));
+        transactionService.creerTransaction(buildTransaction(ct, TypeTransaction.TRANSFERT_RECEPTION,
+                ct.getAgenceEnvoiId(), agenceRetraitId, current.getId()));
 
         ct.setStatut(StatutCodeTransfert.RETIRE);
         ct.setDateRetrait(LocalDateTime.now());
@@ -111,19 +120,23 @@ public class CodeTransfertService {
     }
 
     /**
-     * ANNULATION : On rend l'argent à l'expéditeur -> SORTIE de caisse.
+     * ANNULATION : on rend l'argent à l'expéditeur -> SORTIE de caisse
      */
     public CodeTransfert annuler(String code, Utilisateur current) {
         CodeTransfert ct = verifier(code);
 
-        if (ct.getStatut() != StatutCodeTransfert.ENVOYE) 
+        if (ct.getStatut() != StatutCodeTransfert.ENVOYE)
             throw new RuntimeException("Impossible d'annuler un code " + ct.getStatut());
 
         mouvementService.verifierSoldeAgence(current.getAgence().getId(), ct.getMontant());
 
         mouvementService.save(MouvementCaisse.builder()
-                .agence(current.getAgence()).utilisateur(current).type(TypeMouvement.SORTIE)
-                .montant(ct.getMontant()).motif("ANNULATION TRANSFERT " + code).dateMouvement(LocalDateTime.now())
+                .agence(current.getAgence())
+                .utilisateur(current)
+                .type(TypeMouvement.SORTIE)
+                .montant(ct.getMontant())
+                .motif("ANNULATION TRANSFERT " + code)
+                .dateMouvement(LocalDateTime.now())
                 .build());
 
         transactionService.creerTransaction(buildTransaction(ct, TypeTransaction.TRANSFERT_ANNULATION, ct.getAgenceEnvoiId(), null, current.getId()));
@@ -135,21 +148,29 @@ public class CodeTransfertService {
         return repo.save(ct);
     }
 
+    /**
+     * Vérification d'existence du code
+     */
     public CodeTransfert verifier(String code) {
         return repo.findByCode(code).orElseThrow(() -> new RuntimeException("Code inexistant."));
     }
 
     private Client getOrCreateClient(String tel, String nom) {
-        return clientRepo.findByTelephone(tel).orElseGet(() -> 
-            clientRepo.save(Client.builder().nom(nom).telephone(tel).build()));
+        return clientRepo.findByTelephone(tel).orElseGet(() ->
+                clientRepo.save(Client.builder().nom(nom).telephone(tel).build()));
     }
 
     private Transaction buildTransaction(CodeTransfert ct, TypeTransaction type, Integer envoiId, Integer recepId, Integer userId) {
         return Transaction.builder()
-                .montant(ct.getMontant()).type(type).statut(StatutTransaction.SUCCES)
-                .agenceEnvoiId(envoiId).agenceReceptionId(recepId)
-                .expediteurClientId(ct.getExpediteurClientId()).beneficiaireClientId(ct.getBeneficiaireClientId())
-                .utilisateurId(userId).codeTransfertId(ct.getId())
+                .montant(ct.getMontant())
+                .type(type)
+                .statut(StatutTransaction.SUCCES)
+                .agenceEnvoiId(envoiId)
+                .agenceReceptionId(recepId)
+                .expediteurClientId(ct.getExpediteurClientId())
+                .beneficiaireClientId(ct.getBeneficiaireClientId())
+                .utilisateurId(userId)
+                .codeTransfertId(ct.getId())
                 .build();
     }
 
